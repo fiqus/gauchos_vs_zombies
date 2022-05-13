@@ -28,16 +28,16 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
 
 fn sprite_movement(time: Res<Time>, keyboard_input: Res<Input<KeyCode>>, mut sprite_position: Query<(&mut Gaucho, &mut Transform)>) {
     for (_, mut transform) in sprite_position.iter_mut() {
-        if keyboard_input.pressed(KeyCode::Up) {
+        if keyboard_input.any_pressed([KeyCode::Up, KeyCode::W]) {
             transform.translation.y += 10.0;
         }
-        if keyboard_input.pressed(KeyCode::Down) {
+        if keyboard_input.any_pressed([KeyCode::Down, KeyCode::S]) {
             transform.translation.y -= 10.0;
         }
-        if keyboard_input.pressed(KeyCode::Left) {
+        if keyboard_input.any_pressed([KeyCode::Left, KeyCode::A]) {
             transform.translation.x -= 10.0;
         }
-        if keyboard_input.pressed(KeyCode::Right) {
+        if keyboard_input.any_pressed([KeyCode::Right, KeyCode::D]) {
             transform.translation.x += 10.0;
         }
     }
