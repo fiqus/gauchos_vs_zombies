@@ -18,11 +18,19 @@ fn main() {
                 .with_system(move_zombies),
         )
         .insert_resource(WaveSpawnTimer(Timer::from_seconds(1.0, true)))
+        .add_system(shoot)
+        .insert_resource(BulletTimer(Timer::from_seconds(0.01, true)))
+        .add_system(update_bullet_direction)
         .run();
 }
 
 #[derive(Component)]
 struct Gaucho;
+
+#[derive(Component)]
+struct Bullet;
+
+struct BulletTimer(Timer);
 
 #[derive(Component)]
 struct Zombie;
@@ -104,5 +112,35 @@ fn update_zombies(
 fn move_zombies(mut zombies: Query<(&Velocity, &mut Transform), With<Zombie>>) {
     for (zombie_vel, mut zombie_trans) in zombies.iter_mut() {
         zombie_trans.translation += vec3(zombie_vel.0.x, zombie_vel.0.y, 0.0);
+    }
+}
+
+
+fn shoot(mut commands: Commands, keyboard_input: Res<Input<KeyCode>>, mut payer_position: Query<(&mut Gaucho, &mut Transform)>) {
+    for (_, mut transform) in payer_position.iter_mut() {
+        if keyboard_input.pressed(KeyCode::Space) {
+            commands
+                .spawn_bundle(SpriteBundle {
+                    sprite: Sprite {
+                        color: Color::rgb(0.25, 0.25, 0.75),
+                        custom_size: Some(Vec2::new(5.0, 5.0)),
+                        ..default()
+                    },
+                    transform: Transform {
+                        translation: transform.translation,
+                        ..default()
+                    },
+                    ..default()
+                })
+                .insert(Bullet);
+        }
+    }
+}
+
+fn update_bullet_direction(time: Res<Time>, mut timer: ResMut<BulletTimer>, mut bullet_position: Query<(&mut Bullet, &mut Transform)>) {
+    if timer.0.tick(time.delta()).just_finished() {
+        for (_, mut transform) in bullet_position.iter_mut() {
+            transform.translation.y += 5.0;
+        }
     }
 }
