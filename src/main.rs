@@ -1,7 +1,8 @@
 use bevy::core::FixedTimestep;
-use bevy::math::{vec2, vec3, Vec3Swizzles};
+use bevy::math::{vec2, vec3};
 use bevy::prelude::*;
 use bevy::render::camera::Camera2d;
+use bevy::sprite::collide_aabb::collide;
 use rand::Rng;
 
 const TIME_STEP: f32 = 1.0 / 60.0;
@@ -23,6 +24,7 @@ fn main() {
         .add_system(shoot)
         .insert_resource(BulletTimer(Timer::from_seconds(0.01, true)))
         .add_system(update_bullet_direction)
+        .add_system(check_collisions)
         .run();
 }
 
@@ -175,6 +177,38 @@ fn update_bullet_direction(
         for (mut transform, velocity) in bullet_position.iter_mut() {
             transform.translation.x += velocity.0.x;
             transform.translation.y += velocity.0.y;
+        }
+    }
+}
+
+fn check_collisions(
+    mut commands: Commands,
+    bullet_transforms: Query<(Entity, &Sprite, &Transform), With<Bullet>>,
+    player_transform: Query<(&Sprite, &Transform), With<Gaucho>>,
+    zombie_transforms: Query<(Entity, &Sprite, &Transform), With<Zombie>>,
+) {
+    let (player_sprite, player_transform) = player_transform.get_single().unwrap();
+    for (_, zombie_sprite, zombie_transform) in zombie_transforms.iter() {
+        if let Some(_collision) = collide(
+            player_transform.translation,
+            player_sprite.custom_size.unwrap_or(vec2(0.0, 0.0)),
+            zombie_transform.translation,
+            zombie_sprite.custom_size.unwrap_or(vec2(0.0, 0.0)),
+        ) {
+            println!("perdiste");
+        }
+    }
+    for (bullet, bullet_sprite, bullet_transform) in bullet_transforms.iter() {
+        for (zombie, zombie_sprite, zombie_transform) in zombie_transforms.iter() {
+            if let Some(_collision) = collide(
+                bullet_transform.translation,
+                bullet_sprite.custom_size.unwrap_or(vec2(0.0, 0.0)),
+                zombie_transform.translation,
+                zombie_sprite.custom_size.unwrap_or(vec2(0.0, 0.0)),
+            ) {
+                commands.entity(zombie).despawn_recursive();
+                commands.entity(bullet).despawn_recursive();
+            }
         }
     }
 }
