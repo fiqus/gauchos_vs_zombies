@@ -1,6 +1,7 @@
 use bevy::core::FixedTimestep;
 use bevy::math::vec3;
 use bevy::prelude::*;
+use bevy::render::camera::Camera2d;
 use rand::Rng;
 
 const TIME_STEP: f32 = 1.0 / 60.0;
@@ -10,6 +11,7 @@ fn main() {
         .add_plugins(DefaultPlugins)
         .add_startup_system(setup)
         .add_system(sprite_movement)
+        .add_system(camera_movement)
         .add_system(spawn_wave)
         .add_system_set(
             SystemSet::new()
@@ -73,6 +75,17 @@ fn sprite_movement(
     }
 }
 
+fn camera_movement(
+    mut camera_position: Query<&mut Transform, With<Camera2d>>,
+    sprite_position: Query<&Transform, (With<Gaucho>, Without<Camera2d>)>,
+) {
+    let gaucho_transform = sprite_position.get_single().unwrap();
+    for mut transform in camera_position.iter_mut() {
+        transform.translation.x = gaucho_transform.translation.x;
+        transform.translation.y = gaucho_transform.translation.y;
+    }
+}
+
 struct WaveSpawnTimer(Timer);
 
 fn spawn_wave(time: Res<Time>, mut timer: ResMut<WaveSpawnTimer>, mut commands: Commands) {
@@ -115,8 +128,11 @@ fn move_zombies(mut zombies: Query<(&Velocity, &mut Transform), With<Zombie>>) {
     }
 }
 
-
-fn shoot(mut commands: Commands, keyboard_input: Res<Input<KeyCode>>, mut payer_position: Query<(&mut Gaucho, &mut Transform)>) {
+fn shoot(
+    mut commands: Commands,
+    keyboard_input: Res<Input<KeyCode>>,
+    mut payer_position: Query<(&mut Gaucho, &mut Transform)>,
+) {
     for (_, mut transform) in payer_position.iter_mut() {
         if keyboard_input.pressed(KeyCode::Space) {
             commands
@@ -137,7 +153,11 @@ fn shoot(mut commands: Commands, keyboard_input: Res<Input<KeyCode>>, mut payer_
     }
 }
 
-fn update_bullet_direction(time: Res<Time>, mut timer: ResMut<BulletTimer>, mut bullet_position: Query<(&mut Bullet, &mut Transform)>) {
+fn update_bullet_direction(
+    time: Res<Time>,
+    mut timer: ResMut<BulletTimer>,
+    mut bullet_position: Query<(&mut Bullet, &mut Transform)>,
+) {
     if timer.0.tick(time.delta()).just_finished() {
         for (_, mut transform) in bullet_position.iter_mut() {
             transform.translation.y += 5.0;
