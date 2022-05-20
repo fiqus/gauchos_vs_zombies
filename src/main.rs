@@ -1,5 +1,5 @@
 use bevy::core::FixedTimestep;
-use bevy::math::vec3;
+use bevy::math::{vec2, vec3, Vec3Swizzles};
 use bevy::prelude::*;
 use bevy::render::camera::Camera2d;
 use rand::Rng;
@@ -61,16 +61,16 @@ fn sprite_movement(
 ) {
     for (_, mut transform) in sprite_position.iter_mut() {
         if keyboard_input.any_pressed([KeyCode::Up, KeyCode::W]) {
-            transform.translation.y += 10.0;
+            transform.translation.y += 5.0;
         }
         if keyboard_input.any_pressed([KeyCode::Down, KeyCode::S]) {
-            transform.translation.y -= 10.0;
+            transform.translation.y -= 5.0;
         }
         if keyboard_input.any_pressed([KeyCode::Left, KeyCode::A]) {
-            transform.translation.x -= 10.0;
+            transform.translation.x -= 5.0;
         }
         if keyboard_input.any_pressed([KeyCode::Right, KeyCode::D]) {
-            transform.translation.x += 10.0;
+            transform.translation.x += 5.0;
         }
     }
 }
@@ -88,12 +88,18 @@ fn camera_movement(
 
 struct WaveSpawnTimer(Timer);
 
-fn spawn_wave(time: Res<Time>, mut timer: ResMut<WaveSpawnTimer>, mut commands: Commands) {
+fn spawn_wave(
+    time: Res<Time>,
+    mut timer: ResMut<WaveSpawnTimer>,
+    mut commands: Commands,
+    gaucho_transform: Query<&Transform, (With<Gaucho>, Without<Camera2d>)>,
+) {
     if timer.0.tick(time.delta()).just_finished() {
         let mut rng = rand::thread_rng();
+        let gaucho_translation = gaucho_transform.get_single().unwrap().translation;
         for _ in 0..5 {
-            let x = rng.gen_range(-200.0..200.0);
-            let y = rng.gen_range(-200.0..200.0);
+            let x = gaucho_translation.x + rng.gen_range(-200.0..200.0);
+            let y = gaucho_translation.y + rng.gen_range(-200.0..200.0);
             commands
                 .spawn()
                 .insert(Zombie)
@@ -130,11 +136,15 @@ fn move_zombies(mut zombies: Query<(&Velocity, &mut Transform), With<Zombie>>) {
 
 fn shoot(
     mut commands: Commands,
-    keyboard_input: Res<Input<KeyCode>>,
-    mut payer_position: Query<(&mut Gaucho, &mut Transform)>,
+    buttons: Res<Input<MouseButton>>,
+    windows: Res<Windows>,
+    player_transform: Query<&Transform, With<Gaucho>>,
 ) {
-    for (_, mut transform) in payer_position.iter_mut() {
-        if keyboard_input.pressed(KeyCode::Space) {
+    if buttons.just_pressed(MouseButton::Left) {
+        let player_translation = player_transform.get_single().unwrap().translation;
+
+        let window = windows.get_primary().unwrap();
+        if let Some(position) = window.cursor_position() {
             commands
                 .spawn_bundle(SpriteBundle {
                     sprite: Sprite {
@@ -143,12 +153,15 @@ fn shoot(
                         ..default()
                     },
                     transform: Transform {
-                        translation: transform.translation,
+                        translation: player_translation,
                         ..default()
                     },
                     ..default()
                 })
-                .insert(Bullet);
+                .insert(Bullet)
+                .insert(Velocity(
+                    (position - vec2(window.width() / 2., window.height() / 2.)).normalize() * 10.0,
+                ));
         }
     }
 }
@@ -156,11 +169,12 @@ fn shoot(
 fn update_bullet_direction(
     time: Res<Time>,
     mut timer: ResMut<BulletTimer>,
-    mut bullet_position: Query<(&mut Bullet, &mut Transform)>,
+    mut bullet_position: Query<(&mut Transform, &Velocity), With<Bullet>>,
 ) {
     if timer.0.tick(time.delta()).just_finished() {
-        for (_, mut transform) in bullet_position.iter_mut() {
-            transform.translation.y += 5.0;
+        for (mut transform, velocity) in bullet_position.iter_mut() {
+            transform.translation.x += velocity.0.x;
+            transform.translation.y += velocity.0.y;
         }
     }
 }
