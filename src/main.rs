@@ -1,8 +1,7 @@
-use bevy::core::FixedTimestep;
 use bevy::math::{vec2, vec3};
 use bevy::prelude::*;
-use bevy::render::camera::Camera2d;
 use bevy::sprite::collide_aabb::collide;
+use bevy::time::FixedTimestep;
 use rand::Rng;
 
 const TIME_STEP: f32 = 1.0 / 60.0;
@@ -43,7 +42,7 @@ struct Zombie;
 struct Velocity(Vec2);
 
 fn setup(mut commands: Commands, _asset_server: Res<AssetServer>) {
-    commands.spawn_bundle(OrthographicCameraBundle::new_2d());
+    commands.spawn_bundle(Camera2dBundle::default());
     commands
         .spawn_bundle(SpriteBundle {
             sprite: Sprite {
