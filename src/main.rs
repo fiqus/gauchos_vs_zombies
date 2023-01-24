@@ -19,9 +19,12 @@ fn main() {
                 .with_system(update_zombies)
                 .with_system(move_zombies),
         )
-        .insert_resource(WaveSpawnTimer(Timer::from_seconds(1.0, true)))
+        .insert_resource(WaveSpawnTimer(Timer::from_seconds(
+            1.0,
+            TimerMode::Repeating,
+        )))
         .add_system(shoot)
-        .insert_resource(BulletTimer(Timer::from_seconds(0.01, true)))
+        .insert_resource(BulletTimer(Timer::from_seconds(0.01, TimerMode::Repeating)))
         .add_system(update_bullet_direction)
         .add_system(check_collisions)
         .run();
@@ -33,6 +36,7 @@ struct Gaucho;
 #[derive(Component)]
 struct Bullet;
 
+#[derive(Resource)]
 struct BulletTimer(Timer);
 
 #[derive(Component)]
@@ -42,9 +46,9 @@ struct Zombie;
 struct Velocity(Vec2);
 
 fn setup(mut commands: Commands, _asset_server: Res<AssetServer>) {
-    commands.spawn_bundle(Camera2dBundle::default());
+    commands.spawn(Camera2dBundle::default());
     commands
-        .spawn_bundle(SpriteBundle {
+        .spawn(SpriteBundle {
             sprite: Sprite {
                 color: Color::rgb(0.25, 0.25, 0.75),
                 custom_size: Some(Vec2::new(10.0, 10.0)),
@@ -87,6 +91,7 @@ fn camera_movement(
     }
 }
 
+#[derive(Resource)]
 struct WaveSpawnTimer(Timer);
 
 fn spawn_wave(
@@ -102,9 +107,7 @@ fn spawn_wave(
             let x = gaucho_translation.x + rng.gen_range(-200.0..200.0);
             let y = gaucho_translation.y + rng.gen_range(-200.0..200.0);
             commands
-                .spawn()
-                .insert(Zombie)
-                .insert_bundle(SpriteBundle {
+                .spawn(SpriteBundle {
                     sprite: Sprite {
                         color: Color::rgb(0.15, 0.35, 0.15),
                         custom_size: Some(Vec2::new(10.0, 10.0)),
@@ -113,6 +116,7 @@ fn spawn_wave(
                     transform: Transform::from_xyz(x, y, 0.),
                     ..default()
                 })
+                .insert(Zombie)
                 .insert(Velocity(Vec2::new(0., 0.)));
         }
     }
@@ -147,7 +151,7 @@ fn shoot(
         let window = windows.get_primary().unwrap();
         if let Some(position) = window.cursor_position() {
             commands
-                .spawn_bundle(SpriteBundle {
+                .spawn(SpriteBundle {
                     sprite: Sprite {
                         color: Color::rgb(0.25, 0.25, 0.75),
                         custom_size: Some(Vec2::new(5.0, 5.0)),
