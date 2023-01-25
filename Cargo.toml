@@ -3,8 +3,10 @@ name = "gauchos_vs_zombies"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[profile.dev.package."*"]
+opt-level = 3
 
 [dependencies]
 bevy = "0.9"
+bevy_ecs_tilemap = "0.9.0"
 rand = "0.8.5"

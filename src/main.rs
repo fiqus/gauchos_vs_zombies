@@ -1,14 +1,31 @@
 use bevy::math::{vec2, vec3};
-use bevy::prelude::*;
 use bevy::sprite::collide_aabb::collide;
 use bevy::time::FixedTimestep;
-use rand::Rng;
+use bevy::{
+    diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin},
+    prelude::*,
+};
+use bevy_ecs_tilemap::prelude::*;
+use rand::{thread_rng, Rng};
 
 const TIME_STEP: f32 = 1.0 / 60.0;
 
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins)
+        .add_plugins(
+            DefaultPlugins
+                .set(WindowPlugin {
+                    window: WindowDescriptor {
+                        title: String::from("Gauchos vs Zombies"),
+                        ..Default::default()
+                    },
+                    ..default()
+                })
+                .set(ImagePlugin::default_nearest()),
+        )
+        .add_plugin(LogDiagnosticsPlugin::default())
+        .add_plugin(FrameTimeDiagnosticsPlugin::default())
+        .add_plugin(TilemapPlugin)
         .add_startup_system(setup)
         .add_system(sprite_movement)
         .add_system(camera_movement)
@@ -45,8 +62,46 @@ struct Zombie;
 #[derive(Component)]
 struct Velocity(Vec2);
 
-fn setup(mut commands: Commands, _asset_server: Res<AssetServer>) {
+fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
+    let mut random = thread_rng();
     commands.spawn(Camera2dBundle::default());
+
+    let texture_handle: Handle<Image> = asset_server.load("StaticTiles.png");
+
+    let map_size = TilemapSize { x: 320, y: 320 };
+    let mut tile_storage = TileStorage::empty(map_size);
+    let tilemap_entity = commands.spawn_empty().id();
+
+    for x in 0..320u32 {
+        for y in 0..320u32 {
+            let tile_pos = TilePos { x, y };
+            let tile_entity = commands
+                .spawn(TileBundle {
+                    position: tile_pos,
+                    tilemap_id: TilemapId(tilemap_entity),
+                    texture_index: TileTextureIndex(random.gen_range(0..6)),
+                    ..Default::default()
+                })
+                .id();
+            tile_storage.set(&tile_pos, tile_entity);
+        }
+    }
+
+    let tile_size = TilemapTileSize { x: 16.0, y: 16.0 };
+    let grid_size = tile_size.into();
+    let map_type = TilemapType::default();
+
+    commands.entity(tilemap_entity).insert(TilemapBundle {
+        grid_size,
+        map_type,
+        size: map_size,
+        storage: tile_storage,
+        texture: TilemapTexture::Single(texture_handle),
+        tile_size,
+        transform: get_tilemap_center_transform(&map_size, &grid_size, &map_type, 0.0),
+        ..Default::default()
+    });
+
     commands
         .spawn(SpriteBundle {
             sprite: Sprite {
@@ -198,7 +253,7 @@ fn check_collisions(
             zombie_transform.translation,
             zombie_sprite.custom_size.unwrap_or(vec2(0.0, 0.0)),
         ) {
-            println!("perdiste");
+            //println!("perdiste");
         }
     }
     for (bullet, bullet_sprite, bullet_transform) in bullet_transforms.iter() {
