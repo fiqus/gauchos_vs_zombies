@@ -72,6 +72,9 @@ struct AnimationIndices {
 #[derive(Component, Deref, DerefMut)]
 struct AnimationTimer(Timer);
 
+#[derive(Resource, Deref)]
+struct ZombieTexture(Handle<TextureAtlas>);
+
 fn animate_sprite(
     time: Res<Time>,
     mut query: Query<(
@@ -154,24 +157,48 @@ fn setup(
             AnimationTimer(Timer::from_seconds(0.1, TimerMode::Repeating)),
         ))
         .insert(Gaucho);
+
+    let texture_handle = asset_server.load("zombie.png");
+    let texture_atlas =
+        TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 3, 4, None, None);
+    let texture_atlas_handle = texture_atlases.add(texture_atlas);
+    commands.insert_resource(ZombieTexture(texture_atlas_handle));
 }
 
 fn sprite_movement(
     keyboard_input: Res<Input<KeyCode>>,
-    mut sprite_position: Query<(&mut Gaucho, &mut Transform)>,
+    mut sprite_position: Query<
+        (
+            &mut TextureAtlasSprite,
+            &mut Transform,
+            &mut AnimationIndices,
+        ),
+        With<Gaucho>,
+    >,
 ) {
-    for (_, mut transform) in sprite_position.iter_mut() {
+    for (mut sprite, mut transform, mut indices) in sprite_position.iter_mut() {
         if keyboard_input.any_pressed([KeyCode::Up, KeyCode::W]) {
             transform.translation.y += 5.0;
+            indices.first = 9;
+            indices.last = 11;
         }
         if keyboard_input.any_pressed([KeyCode::Down, KeyCode::S]) {
             transform.translation.y -= 5.0;
+            indices.first = 0;
+            indices.last = 2;
         }
         if keyboard_input.any_pressed([KeyCode::Left, KeyCode::A]) {
             transform.translation.x -= 5.0;
+            indices.first = 3;
+            indices.last = 5;
         }
         if keyboard_input.any_pressed([KeyCode::Right, KeyCode::D]) {
             transform.translation.x += 5.0;
+            indices.first = 6;
+            indices.last = 8;
+        }
+        if sprite.index < indices.first || sprite.index > indices.last {
+            sprite.index = indices.first
         }
     }
 }
@@ -195,6 +222,7 @@ fn spawn_wave(
     mut timer: ResMut<WaveSpawnTimer>,
     mut commands: Commands,
     gaucho_transform: Query<&Transform, (With<Gaucho>, Without<Camera2d>)>,
+    texture: Res<ZombieTexture>,
 ) {
     if timer.0.tick(time.delta()).just_finished() {
         let mut rng = rand::thread_rng();
@@ -202,16 +230,18 @@ fn spawn_wave(
         for _ in 0..5 {
             let x = gaucho_translation.x + rng.gen_range(-200.0..200.0);
             let y = gaucho_translation.y + rng.gen_range(-200.0..200.0);
+            let animation_indices = AnimationIndices { first: 0, last: 2 };
             commands
-                .spawn(SpriteBundle {
-                    sprite: Sprite {
-                        color: Color::rgb(0.15, 0.35, 0.15),
-                        custom_size: Some(Vec2::new(10.0, 10.0)),
+                .spawn((
+                    SpriteSheetBundle {
+                        texture_atlas: texture.clone_weak(),
+                        sprite: TextureAtlasSprite::new(animation_indices.first),
+                        transform: Transform::from_xyz(x, y, 0.),
                         ..default()
                     },
-                    transform: Transform::from_xyz(x, y, 0.),
-                    ..default()
-                })
+                    animation_indices,
+                    AnimationTimer(Timer::from_seconds(0.1, TimerMode::Repeating)),
+                ))
                 .insert(Zombie)
                 .insert(Velocity(Vec2::new(0., 0.)));
         }
@@ -229,9 +259,39 @@ fn update_zombies(
     }
 }
 
-fn move_zombies(mut zombies: Query<(&Velocity, &mut Transform), With<Zombie>>) {
-    for (zombie_vel, mut zombie_trans) in zombies.iter_mut() {
+fn move_zombies(
+    mut zombies: Query<
+        (
+            &Velocity,
+            &mut Transform,
+            &mut TextureAtlasSprite,
+            &mut AnimationIndices,
+        ),
+        With<Zombie>,
+    >,
+) {
+    for (zombie_vel, mut zombie_trans, mut sprite, mut indices) in zombies.iter_mut() {
         zombie_trans.translation += vec3(zombie_vel.0.x, zombie_vel.0.y, 0.0);
+        if zombie_vel.0.y.abs() > zombie_vel.0.x.abs() {
+            if zombie_vel.0.y > 0. {
+                indices.first = 9;
+                indices.last = 11;
+            } else {
+                indices.first = 0;
+                indices.last = 2;
+            }
+        } else {
+            if zombie_vel.0.x > 0. {
+                indices.first = 6;
+                indices.last = 8;
+            } else {
+                indices.first = 3;
+                indices.last = 5;
+            }
+        }
+        if sprite.index < indices.first || sprite.index > indices.last {
+            sprite.index = indices.first
+        }
     }
 }
 
@@ -283,7 +343,7 @@ fn update_bullet_direction(
 fn check_collisions(
     mut commands: Commands,
     bullet_transforms: Query<(Entity, &Sprite, &Transform), With<Bullet>>,
-    player_transform: Query<(&Transform), With<Gaucho>>,
+    player_transform: Query<&Transform, With<Gaucho>>,
     zombie_transforms: Query<(Entity, &Transform), With<Zombie>>,
 ) {
     let player_transform = player_transform.get_single().unwrap();
