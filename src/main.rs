@@ -50,7 +50,6 @@ fn main() {
         .add_system_set(
             SystemSet::on_update(GameState::Next)
                 .with_system(sprite_movement)
-                .with_system(camera_movement)
                 .with_system(animate_sprite)
                 .with_system(shoot)
                 .with_system(update_bullet_direction)
@@ -192,6 +191,7 @@ fn setup(
 
 fn sprite_movement(
     keyboard_input: Res<Input<KeyCode>>,
+    mut camera_position: Query<&mut Transform, (With<Camera2d>, Without<Gaucho>)>,
     mut sprite_position: Query<
         (
             &mut TextureAtlasSprite,
@@ -225,17 +225,10 @@ fn sprite_movement(
         if sprite.index < indices.first || sprite.index > indices.last {
             sprite.index = indices.first
         }
-    }
-}
-
-fn camera_movement(
-    mut camera_position: Query<&mut Transform, With<Camera2d>>,
-    sprite_position: Query<&Transform, (With<Gaucho>, Without<Camera2d>)>,
-) {
-    let gaucho_transform = sprite_position.get_single().unwrap();
-    for mut transform in camera_position.iter_mut() {
-        transform.translation.x = gaucho_transform.translation.x;
-        transform.translation.y = gaucho_transform.translation.y;
+        for mut camera_transform in camera_position.iter_mut() {
+            camera_transform.translation.x = transform.translation.x;
+            camera_transform.translation.y = transform.translation.y;
+        }
     }
 }
 
