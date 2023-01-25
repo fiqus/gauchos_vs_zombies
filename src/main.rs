@@ -40,8 +40,9 @@ fn main() {
             1.0,
             TimerMode::Repeating,
         )))
-        .add_system(shoot)
         .insert_resource(BulletTimer(Timer::from_seconds(0.01, TimerMode::Repeating)))
+        .add_system(animate_sprite)
+        .add_system(shoot)
         .add_system(update_bullet_direction)
         .add_system(check_collisions)
         .run();
@@ -62,7 +63,40 @@ struct Zombie;
 #[derive(Component)]
 struct Velocity(Vec2);
 
-fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
+#[derive(Component)]
+struct AnimationIndices {
+    first: usize,
+    last: usize,
+}
+
+#[derive(Component, Deref, DerefMut)]
+struct AnimationTimer(Timer);
+
+fn animate_sprite(
+    time: Res<Time>,
+    mut query: Query<(
+        &AnimationIndices,
+        &mut AnimationTimer,
+        &mut TextureAtlasSprite,
+    )>,
+) {
+    for (indices, mut timer, mut sprite) in &mut query {
+        timer.tick(time.delta());
+        if timer.just_finished() {
+            sprite.index = if sprite.index == indices.last {
+                indices.first
+            } else {
+                sprite.index + 1
+            };
+        }
+    }
+}
+
+fn setup(
+    mut commands: Commands,
+    asset_server: Res<AssetServer>,
+    mut texture_atlases: ResMut<Assets<TextureAtlas>>,
+) {
     let mut random = thread_rng();
     commands.spawn(Camera2dBundle::default());
 
@@ -102,16 +136,23 @@ fn setup(mut commands: Commands, asset_server: Res<AssetServer>) {
         ..Default::default()
     });
 
+    let texture_handle = asset_server.load("gaucho.png");
+    let texture_atlas =
+        TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 3, 4, None, None);
+    let texture_atlas_handle = texture_atlases.add(texture_atlas);
+    // Use only the subset of sprites in the sheet that make up the run animation
+    let animation_indices = AnimationIndices { first: 0, last: 2 };
     commands
-        .spawn(SpriteBundle {
-            sprite: Sprite {
-                color: Color::rgb(0.25, 0.25, 0.75),
-                custom_size: Some(Vec2::new(10.0, 10.0)),
+        .spawn((
+            SpriteSheetBundle {
+                texture_atlas: texture_atlas_handle,
+                sprite: TextureAtlasSprite::new(animation_indices.first),
+                transform: Transform::from_translation(Vec3::ZERO),
                 ..default()
             },
-            transform: Transform::from_xyz(0., 0., 0.),
-            ..default()
-        })
+            animation_indices,
+            AnimationTimer(Timer::from_seconds(0.1, TimerMode::Repeating)),
+        ))
         .insert(Gaucho);
 }
 
@@ -242,27 +283,27 @@ fn update_bullet_direction(
 fn check_collisions(
     mut commands: Commands,
     bullet_transforms: Query<(Entity, &Sprite, &Transform), With<Bullet>>,
-    player_transform: Query<(&Sprite, &Transform), With<Gaucho>>,
-    zombie_transforms: Query<(Entity, &Sprite, &Transform), With<Zombie>>,
+    player_transform: Query<(&Transform), With<Gaucho>>,
+    zombie_transforms: Query<(Entity, &Transform), With<Zombie>>,
 ) {
-    let (player_sprite, player_transform) = player_transform.get_single().unwrap();
-    for (_, zombie_sprite, zombie_transform) in zombie_transforms.iter() {
+    let player_transform = player_transform.get_single().unwrap();
+    for (_, zombie_transform) in zombie_transforms.iter() {
         if let Some(_collision) = collide(
             player_transform.translation,
-            player_sprite.custom_size.unwrap_or(vec2(0.0, 0.0)),
+            vec2(16.0, 16.0),
             zombie_transform.translation,
-            zombie_sprite.custom_size.unwrap_or(vec2(0.0, 0.0)),
+            vec2(16.0, 16.0),
         ) {
             //println!("perdiste");
         }
     }
     for (bullet, bullet_sprite, bullet_transform) in bullet_transforms.iter() {
-        for (zombie, zombie_sprite, zombie_transform) in zombie_transforms.iter() {
+        for (zombie, zombie_transform) in zombie_transforms.iter() {
             if let Some(_collision) = collide(
                 bullet_transform.translation,
                 bullet_sprite.custom_size.unwrap_or(vec2(0.0, 0.0)),
                 zombie_transform.translation,
-                zombie_sprite.custom_size.unwrap_or(vec2(0.0, 0.0)),
+                vec2(16.0, 0.0),
             ) {
                 commands.entity(zombie).despawn_recursive();
                 commands.entity(bullet).despawn_recursive();
