@@ -7,6 +7,7 @@ use bevy::{
 };
 use bevy_asset_loader::prelude::{AssetCollection, LoadingState, LoadingStateAppExt};
 use bevy_ecs_tilemap::prelude::*;
+use bevy_pixel_camera::{PixelBorderPlugin, PixelCameraBundle, PixelCameraPlugin};
 use rand::distributions::Uniform;
 use rand::{thread_rng, Rng};
 
@@ -39,6 +40,10 @@ fn main() {
                 })
                 .set(ImagePlugin::default_nearest()),
         )
+        .add_plugin(PixelCameraPlugin)
+        .add_plugin(PixelBorderPlugin {
+            color: Color::rgb(0.1, 0.1, 0.1),
+        })
         .add_plugin(LogDiagnosticsPlugin::default())
         .add_plugin(FrameTimeDiagnosticsPlugin::default())
         .add_plugin(TilemapPlugin)
@@ -121,7 +126,7 @@ fn setup(
     mut texture_atlases: ResMut<Assets<TextureAtlas>>,
 ) {
     let mut random = thread_rng();
-    commands.spawn(Camera2dBundle::default());
+    let camera = PixelCameraBundle::from_resolution(320, 240);
 
     let texture_handle: Handle<Image> = image_assets.tiles.clone();
 
@@ -176,7 +181,10 @@ fn setup(
             animation_indices,
             AnimationTimer(Timer::from_seconds(0.1, TimerMode::Repeating)),
         ))
-        .insert(Gaucho);
+        .insert(Gaucho)
+        .with_children(|c| {
+            c.spawn(camera);
+        });
 
     let texture_atlas = TextureAtlas::from_grid(
         image_assets.zombie.clone(),
@@ -192,7 +200,6 @@ fn setup(
 
 fn sprite_movement(
     keyboard_input: Res<Input<KeyCode>>,
-    mut camera_position: Query<&mut Transform, (With<Camera2d>, Without<Gaucho>)>,
     mut sprite_position: Query<
         (
             &mut TextureAtlasSprite,
@@ -204,31 +211,27 @@ fn sprite_movement(
 ) {
     for (mut sprite, mut transform, mut indices) in sprite_position.iter_mut() {
         if keyboard_input.any_pressed([KeyCode::Up, KeyCode::W]) {
-            transform.translation.y += 5.0;
+            transform.translation.y += 2.0;
             indices.first = 9;
             indices.last = 11;
         }
         if keyboard_input.any_pressed([KeyCode::Down, KeyCode::S]) {
-            transform.translation.y -= 5.0;
+            transform.translation.y -= 2.0;
             indices.first = 0;
             indices.last = 2;
         }
         if keyboard_input.any_pressed([KeyCode::Left, KeyCode::A]) {
-            transform.translation.x -= 5.0;
+            transform.translation.x -= 2.0;
             indices.first = 3;
             indices.last = 5;
         }
         if keyboard_input.any_pressed([KeyCode::Right, KeyCode::D]) {
-            transform.translation.x += 5.0;
+            transform.translation.x += 2.0;
             indices.first = 6;
             indices.last = 8;
         }
         if sprite.index < indices.first || sprite.index > indices.last {
             sprite.index = indices.first
-        }
-        for mut camera_transform in camera_position.iter_mut() {
-            camera_transform.translation.x = transform.translation.x;
-            camera_transform.translation.y = transform.translation.y;
         }
     }
 }
