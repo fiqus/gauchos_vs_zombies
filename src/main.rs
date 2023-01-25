@@ -7,6 +7,7 @@ use bevy::{
 };
 use bevy_asset_loader::prelude::{AssetCollection, LoadingState, LoadingStateAppExt};
 use bevy_ecs_tilemap::prelude::*;
+use rand::distributions::Uniform;
 use rand::{thread_rng, Rng};
 
 #[derive(AssetCollection, Resource)]
@@ -246,8 +247,10 @@ fn spawn_wave(
         let mut rng = rand::thread_rng();
         let gaucho_translation = gaucho_transform.get_single().unwrap().translation;
         for _ in 0..5 {
-            let x = gaucho_translation.x + rng.gen_range(-200.0..200.0);
-            let y = gaucho_translation.y + rng.gen_range(-200.0..200.0);
+            let x = gaucho_translation.x
+                + rng.gen_range(500.0..1000.0) * rng.sample(Uniform::new(-1., 1.));
+            let y = gaucho_translation.y
+                + rng.gen_range(500.0..1000.0) * rng.sample(Uniform::new(-1., 1.));
             let animation_indices = AnimationIndices { first: 0, last: 2 };
             commands
                 .spawn((
