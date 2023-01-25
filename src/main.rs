@@ -9,6 +9,7 @@ use bevy::{
 use bevy_asset_loader::prelude::{AssetCollection, LoadingState, LoadingStateAppExt};
 use bevy_ecs_tilemap::prelude::*;
 use bevy_embedded_assets::EmbeddedAssetPlugin;
+use noise::{NoiseFn, SuperSimplex};
 use rand::distributions::Uniform;
 use rand::{thread_rng, Rng};
 
@@ -119,19 +120,40 @@ struct ChunkManager {
     pub spawned_chunks: HashSet<IVec2>,
 }
 
-fn spawn_chunk(commands: &mut Commands, image_assets: &Res<ImageAssets>, chunk_pos: IVec2) {
+#[derive(Resource, Deref)]
+struct Noise(Box<dyn NoiseFn<f64, 2> + Send + Sync>);
+
+fn spawn_chunk(
+    commands: &mut Commands,
+    image_assets: &Res<ImageAssets>,
+    chunk_pos: IVec2,
+    noise: &Res<Noise>,
+) {
     let mut random = thread_rng();
     let tilemap_entity = commands.spawn_empty().id();
     let mut tile_storage = TileStorage::empty(CHUNK_SIZE.into());
     // Spawn the elements of the tilemap.
+
     for x in 0..CHUNK_SIZE.x {
         for y in 0..CHUNK_SIZE.y {
+            let noise_val = ((noise.get([
+                chunk_pos.x as f64 * CHUNK_SIZE.x as f64 * TILE_SIZE.x as f64
+                    + x as f64 * TILE_SIZE.x as f64 / 100.,
+                chunk_pos.y as f64 * CHUNK_SIZE.y as f64 * TILE_SIZE.y as f64
+                    + y as f64 * TILE_SIZE.y as f64 / 100.,
+            ]) + 1.)
+                / 2.) as f32;
             let tile_pos = TilePos { x, y };
+            let text_index = TileTextureIndex(if noise_val < 0.8 {
+                random.gen_range(0..6)
+            } else {
+                100
+            });
             let tile_entity = commands
                 .spawn(TileBundle {
                     position: tile_pos,
                     tilemap_id: TilemapId(tilemap_entity),
-                    texture_index: TileTextureIndex(random.gen_range(0..6)),
+                    texture_index: text_index,
                     ..Default::default()
                 })
                 .id();
@@ -169,6 +191,7 @@ fn spawn_chunks_around_camera(
     image_assets: Res<ImageAssets>,
     camera_query: Query<&GlobalTransform, With<Camera>>,
     mut chunk_manager: ResMut<ChunkManager>,
+    noise: Res<Noise>,
 ) {
     for transform in camera_query.iter() {
         let camera_chunk_pos = camera_pos_to_chunk_pos(&transform.translation().xy());
@@ -176,7 +199,7 @@ fn spawn_chunks_around_camera(
             for x in (camera_chunk_pos.x - 4)..(camera_chunk_pos.x + 4) {
                 if !chunk_manager.spawned_chunks.contains(&IVec2::new(x, y)) {
                     chunk_manager.spawned_chunks.insert(IVec2::new(x, y));
-                    spawn_chunk(&mut commands, &image_assets, IVec2::new(x, y));
+                    spawn_chunk(&mut commands, &image_assets, IVec2::new(x, y), &noise);
                 }
             }
         }
@@ -260,6 +283,8 @@ fn setup(
     );
     let texture_atlas_handle = texture_atlases.add(texture_atlas);
     commands.insert_resource(ZombieTexture(texture_atlas_handle));
+    let noise_fn = SuperSimplex::new(0);
+    commands.insert_resource(Noise(Box::new(noise_fn)));
 }
 
 fn sprite_movement(
