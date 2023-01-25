@@ -1,14 +1,29 @@
 use bevy::math::{vec2, vec3};
 use bevy::sprite::collide_aabb::collide;
-use bevy::time::FixedTimestep;
+
 use bevy::{
     diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin},
     prelude::*,
 };
+use bevy_asset_loader::prelude::{AssetCollection, LoadingState, LoadingStateAppExt};
 use bevy_ecs_tilemap::prelude::*;
 use rand::{thread_rng, Rng};
 
-const TIME_STEP: f32 = 1.0 / 60.0;
+#[derive(AssetCollection, Resource)]
+pub struct ImageAssets {
+    #[asset(path = "gaucho.png")]
+    pub gaucho: Handle<Image>,
+    #[asset(path = "zombie.png")]
+    pub zombie: Handle<Image>,
+    #[asset(path = "StaticTiles.png")]
+    pub tiles: Handle<Image>,
+}
+
+#[derive(Clone, Eq, PartialEq, Debug, Hash)]
+enum GameState {
+    Loading,
+    Next,
+}
 
 fn main() {
     App::new()
@@ -26,25 +41,30 @@ fn main() {
         .add_plugin(LogDiagnosticsPlugin::default())
         .add_plugin(FrameTimeDiagnosticsPlugin::default())
         .add_plugin(TilemapPlugin)
-        .add_startup_system(setup)
-        .add_system(sprite_movement)
-        .add_system(camera_movement)
-        .add_system(spawn_wave)
+        .add_loading_state(
+            LoadingState::new(GameState::Loading)
+                .continue_to_state(GameState::Next)
+                .with_collection::<ImageAssets>(),
+        )
+        .add_state(GameState::Loading)
         .add_system_set(
-            SystemSet::new()
-                .with_run_criteria(FixedTimestep::step(TIME_STEP as f64))
+            SystemSet::on_update(GameState::Next)
+                .with_system(sprite_movement)
+                .with_system(camera_movement)
+                .with_system(animate_sprite)
+                .with_system(shoot)
+                .with_system(update_bullet_direction)
+                .with_system(check_collisions)
+                .with_system(spawn_wave)
                 .with_system(update_zombies)
                 .with_system(move_zombies),
         )
+        .add_system_set(SystemSet::on_enter(GameState::Next).with_system(setup))
         .insert_resource(WaveSpawnTimer(Timer::from_seconds(
             1.0,
             TimerMode::Repeating,
         )))
         .insert_resource(BulletTimer(Timer::from_seconds(0.01, TimerMode::Repeating)))
-        .add_system(animate_sprite)
-        .add_system(shoot)
-        .add_system(update_bullet_direction)
-        .add_system(check_collisions)
         .run();
 }
 
@@ -97,13 +117,13 @@ fn animate_sprite(
 
 fn setup(
     mut commands: Commands,
-    asset_server: Res<AssetServer>,
+    image_assets: Res<ImageAssets>,
     mut texture_atlases: ResMut<Assets<TextureAtlas>>,
 ) {
     let mut random = thread_rng();
     commands.spawn(Camera2dBundle::default());
 
-    let texture_handle: Handle<Image> = asset_server.load("StaticTiles.png");
+    let texture_handle: Handle<Image> = image_assets.tiles.clone();
 
     let map_size = TilemapSize { x: 320, y: 320 };
     let mut tile_storage = TileStorage::empty(map_size);
@@ -139,7 +159,7 @@ fn setup(
         ..Default::default()
     });
 
-    let texture_handle = asset_server.load("gaucho.png");
+    let texture_handle = image_assets.gaucho.clone();
     let texture_atlas =
         TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 3, 4, None, None);
     let texture_atlas_handle = texture_atlases.add(texture_atlas);
@@ -158,9 +178,14 @@ fn setup(
         ))
         .insert(Gaucho);
 
-    let texture_handle = asset_server.load("zombie.png");
-    let texture_atlas =
-        TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 3, 4, None, None);
+    let texture_atlas = TextureAtlas::from_grid(
+        image_assets.zombie.clone(),
+        Vec2::new(16.0, 16.0),
+        3,
+        4,
+        None,
+        None,
+    );
     let texture_atlas_handle = texture_atlases.add(texture_atlas);
     commands.insert_resource(ZombieTexture(texture_atlas_handle));
 }
