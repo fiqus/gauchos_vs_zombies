@@ -7,6 +7,7 @@ use bevy::{
 };
 use bevy_asset_loader::prelude::{AssetCollection, LoadingState, LoadingStateAppExt};
 use bevy_ecs_tilemap::prelude::*;
+use bevy_embedded_assets::EmbeddedAssetPlugin;
 use bevy_pixel_camera::{PixelBorderPlugin, PixelCameraBundle, PixelCameraPlugin};
 use rand::distributions::Uniform;
 use rand::{thread_rng, Rng};
@@ -38,7 +39,9 @@ fn main() {
                     },
                     ..default()
                 })
-                .set(ImagePlugin::default_nearest()),
+                .set(ImagePlugin::default_nearest())
+                .build()
+                .add_before::<bevy::asset::AssetPlugin, _>(EmbeddedAssetPlugin),
         )
         .add_plugin(PixelCameraPlugin)
         .add_plugin(PixelBorderPlugin {
