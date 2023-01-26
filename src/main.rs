@@ -288,6 +288,8 @@ fn setup(
 }
 
 fn sprite_movement(
+    windows: Res<Windows>,
+    mut cursor_evr: EventReader<CursorMoved>,
     keyboard_input: Res<Input<KeyCode>>,
     mut camera_position: Query<&mut Transform, (With<Camera2d>, Without<Gaucho>)>,
     mut sprite_position: Query<
@@ -299,26 +301,47 @@ fn sprite_movement(
         With<Gaucho>,
     >,
 ) {
+    let window = windows.get_primary().unwrap();
     for (mut sprite, mut transform, mut indices) in sprite_position.iter_mut() {
+        for ev in cursor_evr.iter() {
+            let mouse_position_vec = vec2(ev.position.x, ev.position.y);
+            let screen_center = vec2(window.width() / 2., window.height() / 2.);
+            let mouse_coordinates = (mouse_position_vec - screen_center).normalize() * 10.0;
+            let is_looking_up = mouse_coordinates.y > 5.0;
+            let is_looking_down = mouse_coordinates.y < -5.0;
+            let is_looking_left = mouse_coordinates.x < 0.0;
+
+            match (is_looking_up, is_looking_down, is_looking_left) {
+                (true, _, _) => {
+                    indices.first = 9;
+                    indices.last = 11;
+                }
+                (_, true, _) => {
+                    indices.first = 0;
+                    indices.last = 2;
+                }
+                (_, _, true) => {
+                    indices.first = 3;
+                    indices.last = 5;
+                }
+                (false, false, false) => {
+                    indices.first = 6;
+                    indices.last = 8;
+                }
+            }
+        }
+
         if keyboard_input.any_pressed([KeyCode::Up, KeyCode::W]) {
             transform.translation.y += 2.0;
-            indices.first = 9;
-            indices.last = 11;
         }
         if keyboard_input.any_pressed([KeyCode::Down, KeyCode::S]) {
             transform.translation.y -= 2.0;
-            indices.first = 0;
-            indices.last = 2;
         }
         if keyboard_input.any_pressed([KeyCode::Left, KeyCode::A]) {
             transform.translation.x -= 2.0;
-            indices.first = 3;
-            indices.last = 5;
         }
         if keyboard_input.any_pressed([KeyCode::Right, KeyCode::D]) {
             transform.translation.x += 2.0;
-            indices.first = 6;
-            indices.last = 8;
         }
         if sprite.index < indices.first || sprite.index > indices.last {
             sprite.index = indices.first
