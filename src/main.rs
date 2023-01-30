@@ -439,8 +439,12 @@ fn shoot(
     buttons: Res<Input<MouseButton>>,
     windows: Res<Windows>,
     player_transform: Query<&Transform, With<Gaucho>>,
+    asset_server: Res<AssetServer>,
+    audio: Res<Audio>,
 ) {
     if buttons.just_pressed(MouseButton::Left) {
+        let shoot = asset_server.load("sounds/shoot.ogg");
+        audio.play(shoot);
         let player_translation = player_transform.get_single().unwrap().translation;
 
         let window = windows.get_primary().unwrap();
@@ -484,6 +488,8 @@ fn check_collisions(
     bullet_transforms: Query<(Entity, &Sprite, &Transform), With<Bullet>>,
     player_transform: Query<&Transform, With<Gaucho>>,
     zombie_transforms: Query<(Entity, &Transform), With<Zombie>>,
+    asset_server: Res<AssetServer>,
+    audio: Res<Audio>,
 ) {
     let player_transform = player_transform.get_single().unwrap();
     for (_, zombie_transform) in zombie_transforms.iter() {
@@ -504,6 +510,12 @@ fn check_collisions(
                 zombie_transform.translation,
                 vec2(16.0, 0.0),
             ) {
+                let zombie_sound = asset_server.load("sounds/zombie.ogg");
+                let impact = asset_server.load("sounds/impact.ogg");
+
+                audio.play(impact);
+                audio.play(zombie_sound);
+
                 commands.entity(zombie).despawn_recursive();
                 commands.entity(bullet).despawn_recursive();
             }
