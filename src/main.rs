@@ -281,13 +281,6 @@ fn sprite_movement(
                 speed.x = 1.0;
             }
 
-            if hit_reaction.length() > 0.001 {
-                speed += hit_reaction.0;
-                hit_reaction.0 *= 0.25;
-            } else {
-                hit_reaction.0 = Vec2::ZERO;
-            }
-
             if speed == Vec2::ZERO {
                 let state = format!("{direction}Idle",);
                 animation.set_state(state);
@@ -299,6 +292,13 @@ fn sprite_movement(
                 transform.translation.x += speed.x;
                 transform.translation.y += speed.y;
             }
+        }
+        if hit_reaction.length() > 0.001 {
+            transform.translation.x += hit_reaction.x;
+            transform.translation.y += hit_reaction.y;
+            hit_reaction.0 *= 0.4;
+        } else {
+            hit_reaction.0 = Vec2::ZERO;
         }
     }
 }
@@ -368,7 +368,7 @@ fn update_zombies(
         if hit_reaction.length() > 0.001 {
             zombie_pos.translation.x += hit_reaction.0.x;
             zombie_pos.translation.y += hit_reaction.0.y;
-            hit_reaction.0 *= 0.25;
+            hit_reaction.0 *= 0.4;
         } else {
             hit_reaction.0 = Vec2::ZERO;
         }
@@ -393,8 +393,8 @@ fn shoot(
             commands
                 .spawn(SpriteBundle {
                     sprite: Sprite {
-                        color: Color::rgb(0.25, 0.25, 0.75),
-                        custom_size: Some(Vec2::new(5.0, 5.0)),
+                        color: Color::rgb(0.5, 0.0, 0.5),
+                        custom_size: Some(Vec2::new(2.0, 2.0)),
                         ..default()
                     },
                     transform: Transform {
@@ -404,13 +404,13 @@ fn shoot(
                     ..default()
                 })
                 .insert(RigidBody::Dynamic)
-                .insert(Collider::ball(2.5))
+                .insert(Collider::ball(1.))
                 .insert(Sensor)
                 .insert(GravityScale(0.0))
                 .insert(Velocity {
                     linvel: (position - vec2(window.width() / 2., window.height() / 2.))
                         .normalize()
-                        * 100.0,
+                        * 500.0,
                     angvel: 0.0,
                 })
                 .insert(Bullet);
@@ -432,10 +432,10 @@ fn check_collisions(
         if let Some(contact_pair) = rapier_context.contact_pair(gaucho, zombie) {
             if contact_pair.has_any_active_contacts() {
                 for manifold in contact_pair.manifolds() {
-                    gaucho_reaction.x += manifold.local_n2().x * 50.;
-                    gaucho_reaction.y += manifold.local_n2().y * 50.;
-                    zombie_reaction.x += manifold.local_n1().x * 10.;
-                    zombie_reaction.y += manifold.local_n1().y * 10.;
+                    gaucho_reaction.x += manifold.local_n2().x * 5.;
+                    gaucho_reaction.y += manifold.local_n2().y * 5.;
+                    zombie_reaction.x += manifold.local_n1().x * 5.;
+                    zombie_reaction.y += manifold.local_n1().y * 5.;
                 }
             }
         }
