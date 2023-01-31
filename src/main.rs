@@ -7,8 +7,7 @@ use animations::{
     Animation, AnimationBundle, AnimationPlugin, GauchoAnimationResource, ZombieAnimationResource,
 };
 use assets::ImageAssets;
-use bevy::math::{vec2, vec3, Vec3Swizzles};
-use bevy::sprite::collide_aabb::collide;
+use bevy::math::{vec2, Vec3Swizzles};
 
 use bevy::utils::HashSet;
 use bevy::{
@@ -20,6 +19,7 @@ use bevy_ecs_tilemap::prelude::*;
 use bevy_embedded_assets::EmbeddedAssetPlugin;
 use noise::{NoiseFn, SuperSimplex};
 
+use bevy_rapier2d::prelude::*;
 use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 
@@ -57,25 +57,28 @@ fn main() {
         .add_plugin(FrameTimeDiagnosticsPlugin::default())
         .add_plugin(TilemapPlugin)
         .add_plugin(AnimationPlugin)
+        .add_plugin(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0))
+        .add_plugin(RapierDebugRenderPlugin::default())
         .add_loading_state(
             LoadingState::new(GameState::Loading)
                 .continue_to_state(GameState::Next)
                 .with_collection::<ImageAssets>(),
         )
         .add_state(GameState::Loading)
+        .add_system_set(SystemSet::on_enter(GameState::Next).with_system(setup))
         .add_system_set(
             SystemSet::on_update(GameState::Next)
                 .with_system(sprite_movement)
+                .with_system(camera_movement.after(sprite_movement))
                 .with_system(shoot)
-                .with_system(update_bullet_direction)
+                // .with_system(update_bullet_direction)
                 .with_system(check_collisions)
                 .with_system(spawn_wave)
                 .with_system(update_zombies)
-                .with_system(move_zombies)
+                // .with_system(move_zombies)
                 .with_system(spawn_chunks_around_camera)
                 .with_system(despawn_outofrange_chunks),
         )
-        .add_system_set(SystemSet::on_enter(GameState::Next).with_system(setup))
         .insert_resource(WaveSpawnTimer(Timer::from_seconds(
             1.0,
             TimerMode::Repeating,
@@ -100,8 +103,8 @@ struct BulletTimer(Timer);
 #[derive(Component)]
 struct Zombie;
 
-#[derive(Component)]
-struct Velocity(Vec2);
+#[derive(Component, Deref, DerefMut)]
+struct HitReaction(Vec2);
 
 #[derive(Default, Debug, Resource)]
 struct ChunkManager {
@@ -223,22 +226,34 @@ fn setup(mut commands: Commands, gaucho_resource: Res<GauchoAnimationResource>) 
         .spawn(Into::<AnimationBundle>::into(
             gaucho_resource.deref().to_owned(),
         ))
+        .insert(RigidBody::KinematicPositionBased)
+        .insert(Collider::ball(8.0))
+        .insert(TransformBundle::from(Transform::from_translation(
+            Vec3::new(0.0, 0.0, 1.0),
+        )))
+        .insert(HitReaction(Vec2::ZERO))
         .insert(Gaucho);
 
     let noise_fn = SuperSimplex::new(0);
     commands.insert_resource(Noise(Box::new(noise_fn)));
 }
 
+fn camera_movement(
+    gaucho_transform: Query<&Transform, With<Gaucho>>,
+    mut camera_position: Query<&mut Transform, (With<Camera>, Without<Gaucho>)>,
+) {
+    let mut tr = camera_position.single_mut();
+    tr.translation = gaucho_transform.single().translation;
+}
+
 fn sprite_movement(
     windows: Res<Windows>,
     keyboard_input: Res<Input<KeyCode>>,
-    mut camera_position: Query<&mut Transform, (With<Camera2d>, Without<Gaucho>)>,
-    mut sprite_position: Query<(&mut Transform, &mut Animation), With<Gaucho>>,
+    mut sprite_position: Query<(&mut Transform, &mut Animation, &mut HitReaction), With<Gaucho>>,
 ) {
     let window = windows.get_primary().unwrap();
-    for (mut transform, mut animation) in sprite_position.iter_mut() {
+    for (mut transform, mut animation, mut hit_reaction) in sprite_position.iter_mut() {
         if let Some(position) = window.cursor_position() {
-            // cursor is inside             let mouse_position_vec = vec2(ev.position.x, ev.position.y);
             let screen_center = vec2(window.width() / 2., window.height() / 2.);
             let mouse_coordinates = (position - screen_center).normalize() * 10.0;
             let is_looking_up = mouse_coordinates.y > 5.0;
@@ -266,6 +281,13 @@ fn sprite_movement(
                 speed.x = 1.0;
             }
 
+            if hit_reaction.length() > 0.001 {
+                speed += hit_reaction.0;
+                hit_reaction.0 *= 0.25;
+            } else {
+                hit_reaction.0 = Vec2::ZERO;
+            }
+
             if speed == Vec2::ZERO {
                 let state = format!("{direction}Idle",);
                 animation.set_state(state);
@@ -276,10 +298,6 @@ fn sprite_movement(
                 speed = speed.normalize() * 2.0;
                 transform.translation.x += speed.x;
                 transform.translation.y += speed.y;
-                for mut camera_transform in camera_position.iter_mut() {
-                    camera_transform.translation.x = transform.translation.x;
-                    camera_transform.translation.y = transform.translation.y;
-                }
             }
         }
     }
@@ -309,38 +327,50 @@ fn spawn_wave(
             zombie_bundle.sprite.transform.translation.y = y;
             commands
                 .spawn(zombie_bundle)
-                .insert(Zombie)
-                .insert(Velocity(Vec2::new(0., 0.)));
+                .insert(RigidBody::Dynamic)
+                .insert(GravityScale(0.0))
+                .insert(Collider::ball(8.0))
+                .insert(Velocity::linear(Vec2::ZERO))
+                .insert(LockedAxes::ROTATION_LOCKED)
+                .insert(HitReaction(Vec2::ZERO))
+                .insert(Zombie);
         }
     }
 }
 
 fn update_zombies(
-    mut zombies: Query<(&mut Velocity, &Transform), With<Zombie>>,
-    gaucho: Query<&Transform, With<Gaucho>>,
+    mut zombies: Query<
+        (
+            &mut Velocity,
+            &mut Transform,
+            &mut Animation,
+            &mut HitReaction,
+        ),
+        With<Zombie>,
+    >,
+    gaucho: Query<&Transform, (With<Gaucho>, Without<Zombie>)>,
 ) {
     let gaucho_pos = gaucho.single();
-    for (mut zombie_vel, zombie_pos) in zombies.iter_mut() {
+    for (mut zombie_vel, mut zombie_pos, mut animation, mut hit_reaction) in zombies.iter_mut() {
         let dir = gaucho_pos.translation - zombie_pos.translation;
-        zombie_vel.0 = Vec2::from([dir.x, dir.y]).normalize() * 1.1;
-    }
-}
-
-fn move_zombies(mut zombies: Query<(&Velocity, &mut Transform, &mut Animation), With<Zombie>>) {
-    for (zombie_vel, mut zombie_trans, mut animation) in zombies.iter_mut() {
-        zombie_trans.translation += vec3(zombie_vel.0.x, zombie_vel.0.y, 0.0);
-        zombie_trans.translation.x = zombie_trans.translation.x.round();
-        zombie_trans.translation.y = zombie_trans.translation.y.round();
-        if zombie_vel.0.y.abs() > zombie_vel.0.x.abs() {
-            if zombie_vel.0.y > 0. {
+        zombie_vel.linvel = Vec2::new(dir.x, dir.y).normalize() * 50.;
+        if zombie_vel.linvel.y.abs() > zombie_vel.linvel.x.abs() {
+            if zombie_vel.linvel.y > 0. {
                 animation.set_state("UpWalking".to_string());
             } else {
                 animation.set_state("DownWalking".to_string());
             }
-        } else if zombie_vel.0.x > 0. {
+        } else if zombie_vel.linvel.x > 0. {
             animation.set_state("RightWalking".to_string());
         } else {
             animation.set_state("LeftWalking".to_string());
+        }
+        if hit_reaction.length() > 0.001 {
+            zombie_pos.translation.x += hit_reaction.0.x;
+            zombie_pos.translation.y += hit_reaction.0.y;
+            hit_reaction.0 *= 0.25;
+        } else {
+            hit_reaction.0 = Vec2::ZERO;
         }
     }
 }
@@ -373,54 +403,46 @@ fn shoot(
                     },
                     ..default()
                 })
-                .insert(Bullet)
-                .insert(Velocity(
-                    (position - vec2(window.width() / 2., window.height() / 2.)).normalize() * 10.0,
-                ));
-        }
-    }
-}
-
-fn update_bullet_direction(
-    time: Res<Time>,
-    mut timer: ResMut<BulletTimer>,
-    mut bullet_position: Query<(&mut Transform, &Velocity), With<Bullet>>,
-) {
-    if timer.0.tick(time.delta()).just_finished() {
-        for (mut transform, velocity) in bullet_position.iter_mut() {
-            transform.translation.x += velocity.0.x;
-            transform.translation.y += velocity.0.y;
+                .insert(RigidBody::Dynamic)
+                .insert(Collider::ball(2.5))
+                .insert(Sensor)
+                .insert(GravityScale(0.0))
+                .insert(Velocity {
+                    linvel: (position - vec2(window.width() / 2., window.height() / 2.))
+                        .normalize()
+                        * 100.0,
+                    angvel: 0.0,
+                })
+                .insert(Bullet);
         }
     }
 }
 
 fn check_collisions(
     mut commands: Commands,
-    bullet_transforms: Query<(Entity, &Sprite, &Transform), With<Bullet>>,
-    player_transform: Query<&Transform, With<Gaucho>>,
-    zombie_transforms: Query<(Entity, &Transform), With<Zombie>>,
+    bullets: Query<Entity, With<Bullet>>,
+    mut gaucho: Query<(Entity, &mut HitReaction), With<Gaucho>>,
+    mut zombies: Query<(Entity, &mut HitReaction), (With<Zombie>, Without<Gaucho>)>,
     asset_server: Res<AssetServer>,
     audio: Res<Audio>,
+    rapier_context: Res<RapierContext>,
 ) {
-    let player_transform = player_transform.get_single().unwrap();
-    for (_, zombie_transform) in zombie_transforms.iter() {
-        if let Some(_collision) = collide(
-            player_transform.translation,
-            vec2(16.0, 16.0),
-            zombie_transform.translation,
-            vec2(16.0, 16.0),
-        ) {
-            //println!("perdiste");
+    let (gaucho, mut gaucho_reaction) = gaucho.get_single_mut().unwrap();
+    for (zombie, mut zombie_reaction) in zombies.iter_mut() {
+        if let Some(contact_pair) = rapier_context.contact_pair(gaucho, zombie) {
+            if contact_pair.has_any_active_contacts() {
+                for manifold in contact_pair.manifolds() {
+                    gaucho_reaction.x += manifold.local_n2().x * 50.;
+                    gaucho_reaction.y += manifold.local_n2().y * 50.;
+                    zombie_reaction.x += manifold.local_n1().x * 10.;
+                    zombie_reaction.y += manifold.local_n1().y * 10.;
+                }
+            }
         }
     }
-    for (bullet, bullet_sprite, bullet_transform) in bullet_transforms.iter() {
-        for (zombie, zombie_transform) in zombie_transforms.iter() {
-            if let Some(_collision) = collide(
-                bullet_transform.translation,
-                bullet_sprite.custom_size.unwrap_or(vec2(0.0, 0.0)),
-                zombie_transform.translation,
-                vec2(16.0, 0.0),
-            ) {
+    for bullet in bullets.iter() {
+        for (zombie, _) in zombies.iter() {
+            if rapier_context.intersection_pair(bullet, zombie) == Some(true) {
                 let zombie_sound = asset_server.load("sounds/zombie.ogg");
                 let impact = asset_server.load("sounds/impact.ogg");
 
