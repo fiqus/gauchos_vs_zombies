@@ -1,3 +1,12 @@
+mod animations;
+mod assets;
+
+use std::ops::Deref;
+
+use animations::{
+    Animation, AnimationBundle, AnimationPlugin, GauchoAnimationResource, ZombieAnimationResource,
+};
+use assets::ImageAssets;
 use bevy::math::{vec2, vec3, Vec3Swizzles};
 use bevy::sprite::collide_aabb::collide;
 
@@ -6,11 +15,12 @@ use bevy::{
     diagnostic::{FrameTimeDiagnosticsPlugin, LogDiagnosticsPlugin},
     prelude::*,
 };
-use bevy_asset_loader::prelude::{AssetCollection, LoadingState, LoadingStateAppExt};
+use bevy_asset_loader::prelude::{LoadingState, LoadingStateAppExt};
 use bevy_ecs_tilemap::prelude::*;
 use bevy_embedded_assets::EmbeddedAssetPlugin;
 use noise::{NoiseFn, SuperSimplex};
-use rand::distributions::Uniform;
+
+use rand::seq::SliceRandom;
 use rand::{thread_rng, Rng};
 
 const TILE_SIZE: TilemapTileSize = TilemapTileSize { x: 16.0, y: 16.0 };
@@ -21,16 +31,6 @@ const RENDER_CHUNK_SIZE: UVec2 = UVec2 {
     x: CHUNK_SIZE.x * 2,
     y: CHUNK_SIZE.y * 2,
 };
-
-#[derive(AssetCollection, Resource)]
-pub struct ImageAssets {
-    #[asset(path = "gaucho.png")]
-    pub gaucho: Handle<Image>,
-    #[asset(path = "zombie.png")]
-    pub zombie: Handle<Image>,
-    #[asset(path = "StaticTiles.png")]
-    pub tiles: Handle<Image>,
-}
 
 #[derive(Clone, Eq, PartialEq, Debug, Hash)]
 enum GameState {
@@ -56,6 +56,7 @@ fn main() {
         .add_plugin(LogDiagnosticsPlugin::default())
         .add_plugin(FrameTimeDiagnosticsPlugin::default())
         .add_plugin(TilemapPlugin)
+        .add_plugin(AnimationPlugin)
         .add_loading_state(
             LoadingState::new(GameState::Loading)
                 .continue_to_state(GameState::Next)
@@ -65,7 +66,6 @@ fn main() {
         .add_system_set(
             SystemSet::on_update(GameState::Next)
                 .with_system(sprite_movement)
-                .with_system(animate_sprite)
                 .with_system(shoot)
                 .with_system(update_bullet_direction)
                 .with_system(check_collisions)
@@ -102,18 +102,6 @@ struct Zombie;
 
 #[derive(Component)]
 struct Velocity(Vec2);
-
-#[derive(Component)]
-struct AnimationIndices {
-    first: usize,
-    last: usize,
-}
-
-#[derive(Component, Deref, DerefMut)]
-struct AnimationTimer(Timer);
-
-#[derive(Resource, Deref)]
-struct ZombieTexture(Handle<TextureAtlas>);
 
 #[derive(Default, Debug, Resource)]
 struct ChunkManager {
@@ -226,129 +214,73 @@ fn despawn_outofrange_chunks(
     }
 }
 
-fn animate_sprite(
-    time: Res<Time>,
-    mut query: Query<(
-        &AnimationIndices,
-        &mut AnimationTimer,
-        &mut TextureAtlasSprite,
-    )>,
-) {
-    for (indices, mut timer, mut sprite) in &mut query {
-        timer.tick(time.delta());
-        if timer.just_finished() {
-            sprite.index = if sprite.index == indices.last {
-                indices.first
-            } else {
-                sprite.index + 1
-            };
-        }
-    }
-}
-
-fn setup(
-    mut commands: Commands,
-    image_assets: Res<ImageAssets>,
-    mut texture_atlases: ResMut<Assets<TextureAtlas>>,
-) {
+fn setup(mut commands: Commands, gaucho_resource: Res<GauchoAnimationResource>) {
     let mut camera = Camera2dBundle::default();
     camera.projection.scale = 0.25;
     commands.spawn(camera);
-    let texture_handle = image_assets.gaucho.clone();
-    let texture_atlas =
-        TextureAtlas::from_grid(texture_handle, Vec2::new(16.0, 16.0), 3, 4, None, None);
-    let texture_atlas_handle = texture_atlases.add(texture_atlas);
     // Use only the subset of sprites in the sheet that make up the run animation
-    let animation_indices = AnimationIndices { first: 0, last: 2 };
     commands
-        .spawn((
-            SpriteSheetBundle {
-                texture_atlas: texture_atlas_handle,
-                sprite: TextureAtlasSprite::new(animation_indices.first),
-                transform: Transform::from_xyz(0., 0., 1.),
-                ..default()
-            },
-            animation_indices,
-            AnimationTimer(Timer::from_seconds(0.1, TimerMode::Repeating)),
+        .spawn(Into::<AnimationBundle>::into(
+            gaucho_resource.deref().to_owned(),
         ))
         .insert(Gaucho);
 
-    let texture_atlas = TextureAtlas::from_grid(
-        image_assets.zombie.clone(),
-        Vec2::new(16.0, 16.0),
-        3,
-        4,
-        None,
-        None,
-    );
-    let texture_atlas_handle = texture_atlases.add(texture_atlas);
-    commands.insert_resource(ZombieTexture(texture_atlas_handle));
     let noise_fn = SuperSimplex::new(0);
     commands.insert_resource(Noise(Box::new(noise_fn)));
 }
 
 fn sprite_movement(
     windows: Res<Windows>,
-    mut cursor_evr: EventReader<CursorMoved>,
     keyboard_input: Res<Input<KeyCode>>,
     mut camera_position: Query<&mut Transform, (With<Camera2d>, Without<Gaucho>)>,
-    mut sprite_position: Query<
-        (
-            &mut TextureAtlasSprite,
-            &mut Transform,
-            &mut AnimationIndices,
-        ),
-        With<Gaucho>,
-    >,
+    mut sprite_position: Query<(&mut Transform, &mut Animation), With<Gaucho>>,
 ) {
     let window = windows.get_primary().unwrap();
-    for (mut sprite, mut transform, mut indices) in sprite_position.iter_mut() {
-        for ev in cursor_evr.iter() {
-            let mouse_position_vec = vec2(ev.position.x, ev.position.y);
+    for (mut transform, mut animation) in sprite_position.iter_mut() {
+        if let Some(position) = window.cursor_position() {
+            // cursor is inside             let mouse_position_vec = vec2(ev.position.x, ev.position.y);
             let screen_center = vec2(window.width() / 2., window.height() / 2.);
-            let mouse_coordinates = (mouse_position_vec - screen_center).normalize() * 10.0;
+            let mouse_coordinates = (position - screen_center).normalize() * 10.0;
             let is_looking_up = mouse_coordinates.y > 5.0;
             let is_looking_down = mouse_coordinates.y < -5.0;
             let is_looking_left = mouse_coordinates.x < 0.0;
 
-            match (is_looking_up, is_looking_down, is_looking_left) {
-                (true, _, _) => {
-                    indices.first = 9;
-                    indices.last = 11;
-                }
-                (_, true, _) => {
-                    indices.first = 0;
-                    indices.last = 2;
-                }
-                (_, _, true) => {
-                    indices.first = 3;
-                    indices.last = 5;
-                }
-                (false, false, false) => {
-                    indices.first = 6;
-                    indices.last = 8;
+            let direction = match (is_looking_up, is_looking_down, is_looking_left) {
+                (true, _, _) => "Up",
+                (_, true, _) => "Down",
+                (_, _, true) => "Left",
+                (false, false, false) => "Right",
+            };
+            let mut speed = Vec2::ZERO;
+
+            if keyboard_input.any_pressed([KeyCode::Up, KeyCode::W]) {
+                speed.y = 1.0;
+            }
+            if keyboard_input.any_pressed([KeyCode::Down, KeyCode::S]) {
+                speed.y = -1.0;
+            }
+            if keyboard_input.any_pressed([KeyCode::Left, KeyCode::A]) {
+                speed.x = -1.0;
+            }
+            if keyboard_input.any_pressed([KeyCode::Right, KeyCode::D]) {
+                speed.x = 1.0;
+            }
+
+            if speed == Vec2::ZERO {
+                let state = format!("{direction}Idle",);
+                animation.set_state(state);
+            } else {
+                let state = format!("{direction}Walking",);
+                animation.set_state(state);
+
+                speed = speed.normalize() * 2.0;
+                transform.translation.x += speed.x;
+                transform.translation.y += speed.y;
+                for mut camera_transform in camera_position.iter_mut() {
+                    camera_transform.translation.x = transform.translation.x;
+                    camera_transform.translation.y = transform.translation.y;
                 }
             }
-        }
-
-        if keyboard_input.any_pressed([KeyCode::Up, KeyCode::W]) {
-            transform.translation.y += 2.0;
-        }
-        if keyboard_input.any_pressed([KeyCode::Down, KeyCode::S]) {
-            transform.translation.y -= 2.0;
-        }
-        if keyboard_input.any_pressed([KeyCode::Left, KeyCode::A]) {
-            transform.translation.x -= 2.0;
-        }
-        if keyboard_input.any_pressed([KeyCode::Right, KeyCode::D]) {
-            transform.translation.x += 2.0;
-        }
-        if sprite.index < indices.first || sprite.index > indices.last {
-            sprite.index = indices.first
-        }
-        for mut camera_transform in camera_position.iter_mut() {
-            camera_transform.translation.x = transform.translation.x;
-            camera_transform.translation.y = transform.translation.y;
         }
     }
 }
@@ -360,29 +292,23 @@ fn spawn_wave(
     time: Res<Time>,
     mut timer: ResMut<WaveSpawnTimer>,
     mut commands: Commands,
+    zombie_resource: Res<ZombieAnimationResource>,
     gaucho_transform: Query<&Transform, (With<Gaucho>, Without<Camera2d>)>,
-    texture: Res<ZombieTexture>,
 ) {
     if timer.0.tick(time.delta()).just_finished() {
         let mut rng = rand::thread_rng();
         let gaucho_translation = gaucho_transform.get_single().unwrap().translation;
         for _ in 0..5 {
             let x = gaucho_translation.x
-                + rng.gen_range(500.0..1000.0) * rng.sample(Uniform::new(-1., 1.));
+                + rng.gen_range(100.0..500.0) * ([-1., 1.].choose(&mut rng)).unwrap();
             let y = gaucho_translation.y
-                + rng.gen_range(500.0..1000.0) * rng.sample(Uniform::new(-1., 1.));
-            let animation_indices = AnimationIndices { first: 0, last: 2 };
+                + rng.gen_range(100.0..500.0) * ([-1., 1.].choose(&mut rng)).unwrap();
+            let mut zombie_bundle =
+                Into::<AnimationBundle>::into(zombie_resource.deref().to_owned());
+            zombie_bundle.sprite.transform.translation.x = x;
+            zombie_bundle.sprite.transform.translation.y = y;
             commands
-                .spawn((
-                    SpriteSheetBundle {
-                        texture_atlas: texture.clone_weak(),
-                        sprite: TextureAtlasSprite::new(animation_indices.first),
-                        transform: Transform::from_xyz(x, y, 1.),
-                        ..default()
-                    },
-                    animation_indices,
-                    AnimationTimer(Timer::from_seconds(0.1, TimerMode::Repeating)),
-                ))
+                .spawn(zombie_bundle)
                 .insert(Zombie)
                 .insert(Velocity(Vec2::new(0., 0.)));
         }
@@ -400,36 +326,21 @@ fn update_zombies(
     }
 }
 
-fn move_zombies(
-    mut zombies: Query<
-        (
-            &Velocity,
-            &mut Transform,
-            &mut TextureAtlasSprite,
-            &mut AnimationIndices,
-        ),
-        With<Zombie>,
-    >,
-) {
-    for (zombie_vel, mut zombie_trans, mut sprite, mut indices) in zombies.iter_mut() {
+fn move_zombies(mut zombies: Query<(&Velocity, &mut Transform, &mut Animation), With<Zombie>>) {
+    for (zombie_vel, mut zombie_trans, mut animation) in zombies.iter_mut() {
         zombie_trans.translation += vec3(zombie_vel.0.x, zombie_vel.0.y, 0.0);
+        zombie_trans.translation.x = zombie_trans.translation.x.round();
+        zombie_trans.translation.y = zombie_trans.translation.y.round();
         if zombie_vel.0.y.abs() > zombie_vel.0.x.abs() {
             if zombie_vel.0.y > 0. {
-                indices.first = 9;
-                indices.last = 11;
+                animation.set_state("UpWalking".to_string());
             } else {
-                indices.first = 0;
-                indices.last = 2;
+                animation.set_state("DownWalking".to_string());
             }
         } else if zombie_vel.0.x > 0. {
-            indices.first = 6;
-            indices.last = 8;
+            animation.set_state("RightWalking".to_string());
         } else {
-            indices.first = 3;
-            indices.last = 5;
-        }
-        if sprite.index < indices.first || sprite.index > indices.last {
-            sprite.index = indices.first
+            animation.set_state("LeftWalking".to_string());
         }
     }
 }
