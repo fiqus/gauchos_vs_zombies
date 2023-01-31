@@ -92,6 +92,12 @@ fn main() {
 }
 
 #[derive(Component)]
+struct Health {
+    current: usize,
+    max: usize,
+}
+
+#[derive(Component)]
 struct Gaucho;
 
 #[derive(Component)]
@@ -325,6 +331,21 @@ fn spawn_wave(
                 Into::<AnimationBundle>::into(zombie_resource.deref().to_owned());
             zombie_bundle.sprite.transform.translation.x = x;
             zombie_bundle.sprite.transform.translation.y = y;
+            let bar = commands
+                .spawn(SpriteBundle {
+                    sprite: Sprite {
+                        color: Color::rgba(0.9, 0.0, 0., 0.8),
+                        custom_size: Some(Vec2::new(15.0, 2.0)),
+                        ..default()
+                    },
+                    transform: Transform::from_translation(Vec3 {
+                        x: 0.,
+                        y: 9.,
+                        z: 0.,
+                    }),
+                    ..default()
+                })
+                .id();
             commands
                 .spawn(zombie_bundle)
                 .insert(RigidBody::Dynamic)
@@ -333,6 +354,11 @@ fn spawn_wave(
                 .insert(Velocity::linear(Vec2::ZERO))
                 .insert(LockedAxes::ROTATION_LOCKED)
                 .insert(HitReaction(Vec2::ZERO))
+                .insert(Health {
+                    current: 100,
+                    max: 100,
+                })
+                .add_child(bar)
                 .insert(Zombie);
         }
     }
@@ -422,13 +448,17 @@ fn check_collisions(
     mut commands: Commands,
     bullets: Query<Entity, With<Bullet>>,
     mut gaucho: Query<(Entity, &mut HitReaction), With<Gaucho>>,
-    mut zombies: Query<(Entity, &mut HitReaction), (With<Zombie>, Without<Gaucho>)>,
+    mut zombies: Query<
+        (Entity, &mut HitReaction, &mut Health, &Children),
+        (With<Zombie>, Without<Gaucho>),
+    >,
+    mut zombie_children: Query<&mut Sprite>,
     asset_server: Res<AssetServer>,
     audio: Res<Audio>,
     rapier_context: Res<RapierContext>,
 ) {
     let (gaucho, mut gaucho_reaction) = gaucho.get_single_mut().unwrap();
-    for (zombie, mut zombie_reaction) in zombies.iter_mut() {
+    for (zombie, mut zombie_reaction, _, _) in zombies.iter_mut() {
         if let Some(contact_pair) = rapier_context.contact_pair(gaucho, zombie) {
             if contact_pair.has_any_active_contacts() {
                 for manifold in contact_pair.manifolds() {
@@ -441,7 +471,7 @@ fn check_collisions(
         }
     }
     for bullet in bullets.iter() {
-        for (zombie, _) in zombies.iter() {
+        for (zombie, _, mut health, children) in zombies.iter_mut() {
             if rapier_context.intersection_pair(bullet, zombie) == Some(true) {
                 let zombie_sound = asset_server.load("sounds/zombie.ogg");
                 let impact = asset_server.load("sounds/impact.ogg");
@@ -449,7 +479,17 @@ fn check_collisions(
                 audio.play(impact);
                 audio.play(zombie_sound);
 
-                commands.entity(zombie).despawn_recursive();
+                if health.current <= 10 {
+                    commands.entity(zombie).despawn_recursive();
+                } else {
+                    health.current -= 10;
+                    for &child in children.iter() {
+                        if let Ok(mut health_sprite) = zombie_children.get_mut(child) {
+                            health_sprite.custom_size =
+                                Some(vec2(16. * health.current as f32 / health.max as f32, 2.))
+                        }
+                    }
+                }
                 commands.entity(bullet).despawn_recursive();
             }
         }
