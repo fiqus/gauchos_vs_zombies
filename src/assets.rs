@@ -9,4 +9,6 @@ pub struct ImageAssets {
     pub gaucho: Handle<Image>,
     #[asset(path = "zombie.png")]
     pub zombie: Handle<Image>,
+    #[asset(path = "facon.png")]
+    pub facon: Handle<Image>,
 }
