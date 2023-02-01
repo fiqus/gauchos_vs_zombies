@@ -61,7 +61,7 @@ fn main() {
         .add_plugin(TilemapPlugin)
         .add_plugin(AnimationPlugin)
         .add_plugin(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0))
-        .add_plugin(RapierDebugRenderPlugin::default())
+        //.add_plugin(RapierDebugRenderPlugin::default())
         .add_loading_state(
             LoadingState::new(GameState::Loading)
                 .continue_to_state(GameState::Next)
@@ -73,7 +73,7 @@ fn main() {
             SystemSet::on_update(GameState::Next)
                 .with_system(sprite_movement)
                 .with_system(camera_movement.after(sprite_movement))
-                .with_system(shoot)
+                .with_system(attack)
                 // .with_system(update_bullet_direction)
                 .with_system(check_collisions)
                 .with_system(spawn_wave)
@@ -229,7 +229,12 @@ fn despawn_outofrange_chunks(
     }
 }
 
-fn setup(mut commands: Commands, gaucho_resource: Res<GauchoAnimationResource>) {
+fn setup(
+    mut commands: Commands,
+    gaucho_resource: Res<GauchoAnimationResource>,
+    asset_server: Res<AssetServer>,
+    audio: Res<Audio>,
+) {
     let mut camera = Camera2dBundle::default();
     camera.projection.scale = 0.25;
     commands.spawn(camera);
@@ -248,6 +253,8 @@ fn setup(mut commands: Commands, gaucho_resource: Res<GauchoAnimationResource>) 
 
     let noise_fn = SuperSimplex::new(0);
     commands.insert_resource(Noise(Box::new(noise_fn)));
+    let wind = asset_server.load("sounds/wind.ogg");
+    audio.play_with_settings(wind, PlaybackSettings::LOOP.with_volume(0.3));
 }
 
 fn camera_movement(
@@ -432,7 +439,7 @@ fn update_zombies(
     }
 }
 
-fn shoot(
+fn attack(
     mut commands: Commands,
     buttons: Res<Input<MouseButton>>,
     windows: Res<Windows>,
@@ -442,7 +449,7 @@ fn shoot(
     facon_resource: Res<FaconAnimationResource>,
 ) {
     if buttons.just_pressed(MouseButton::Left) {
-        let shoot = asset_server.load("sounds/shoot.ogg");
+        let shoot = asset_server.load("sounds/knife_attack.ogg");
         audio.play(shoot);
 
         let window = windows.get_primary().unwrap();
