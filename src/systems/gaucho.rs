@@ -1,6 +1,7 @@
 use bevy::{
     math::{vec2, vec3},
     prelude::*,
+    window::PrimaryWindow,
 };
 use std::{f32::consts::PI, ops::Deref};
 
@@ -14,7 +15,7 @@ use bevy_rapier2d::prelude::*;
 pub fn attack(
     mut commands: Commands,
     buttons: Res<Input<MouseButton>>,
-    windows: Res<Windows>,
+    primary_query: Query<&Window, With<PrimaryWindow>>,
     gaucho: Query<Entity, With<Gaucho>>,
     asset_server: Res<AssetServer>,
     audio: Res<Audio>,
@@ -24,7 +25,9 @@ pub fn attack(
         let shoot = asset_server.load("sounds/knife_attack.ogg");
         audio.play(shoot);
 
-        let window = windows.get_primary().unwrap();
+        let Ok(window) = primary_query.get_single() else {
+            return;
+        };
         if let Some(position) = window.cursor_position() {
             let screen_center = vec2(window.width() / 2., window.height() / 2.);
             let mouse_coordinates = (position - screen_center).normalize() * 10.0;
@@ -58,7 +61,7 @@ pub fn attack(
 }
 
 pub fn sprite_movement(
-    windows: Res<Windows>,
+    primary_query: Query<&Window, With<PrimaryWindow>>,
     keyboard_input: Res<Input<KeyCode>>,
     mut sprite_position: Query<
         (
@@ -71,7 +74,9 @@ pub fn sprite_movement(
     >,
     time: Res<Time>,
 ) {
-    let window = windows.get_primary().unwrap();
+    let Ok(window) = primary_query.get_single() else {
+        return;
+    };
     for (mut transform, mut animation, mut hit_reaction, mut sprite) in sprite_position.iter_mut() {
         if let Some(position) = window.cursor_position() {
             let screen_center = vec2(window.width() / 2., window.height() / 2.);

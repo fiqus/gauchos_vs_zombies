@@ -21,10 +21,16 @@ use noise::SuperSimplex;
 use bevy_rapier2d::prelude::*;
 use components::{Gaucho, HitReaction};
 
-#[derive(Clone, Eq, PartialEq, Debug, Hash)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Hash, States)]
 enum GameState {
     Loading,
     Next,
+}
+
+impl Default for GameState {
+    fn default() -> Self {
+        GameState::Loading
+    }
 }
 
 fn main() {
@@ -32,10 +38,10 @@ fn main() {
         .add_plugins(
             DefaultPlugins
                 .set(WindowPlugin {
-                    window: WindowDescriptor {
+                    primary_window: Some(Window {
                         title: String::from("Gauchos vs Zombies"),
                         ..Default::default()
-                    },
+                    }),
                     ..default()
                 })
                 .set(ImagePlugin::default_nearest())
@@ -48,27 +54,22 @@ fn main() {
         .add_plugin(AnimationPlugin)
         .add_plugin(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0))
         //.add_plugin(RapierDebugRenderPlugin::default())
-        .add_loading_state(
-            LoadingState::new(GameState::Loading)
-                .continue_to_state(GameState::Next)
-                .with_collection::<ImageAssets>(),
-        )
-        .add_state(GameState::Loading)
-        .add_system_set(SystemSet::on_enter(GameState::Next).with_system(setup))
-        .add_system_set(
-            SystemSet::on_update(GameState::Next)
-                .with_system(systems::gaucho::sprite_movement)
-                .with_system(
-                    systems::camera::camera_movement.after(systems::gaucho::sprite_movement),
-                )
-                .with_system(systems::gaucho::attack)
-                // .with_system(update_bullet_direction)
-                .with_system(systems::zombies::check_collisions)
-                .with_system(systems::zombies::spawn_wave)
-                .with_system(systems::zombies::update_zombies)
-                // .with_system(move_zombies)
-                .with_system(systems::chunk::spawn_chunks_around_camera)
-                .with_system(systems::chunk::despawn_outofrange_chunks),
+        .add_state::<GameState>()
+        .add_loading_state(LoadingState::new(GameState::Loading).continue_to_state(GameState::Next))
+        .add_collection_to_loading_state::<_, ImageAssets>(GameState::Loading)
+        .add_system(setup.in_schedule(OnEnter(GameState::Loading)))
+        .add_systems(
+            (
+                systems::gaucho::sprite_movement,
+                systems::gaucho::attack,
+                systems::camera::camera_movement.after(systems::gaucho::sprite_movement),
+                systems::zombies::check_collisions,
+                systems::zombies::spawn_wave,
+                systems::zombies::update_zombies,
+                systems::chunk::spawn_chunks_around_camera,
+                systems::chunk::despawn_outofrange_chunks,
+            )
+                .in_set(OnUpdate(GameState::Next)),
         )
         .insert_resource(resources::WaveSpawnTimer(Timer::from_seconds(
             1.0,
